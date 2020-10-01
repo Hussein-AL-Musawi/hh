@@ -1,0 +1,314 @@
+---
+title: "EDA,Map,Randomforest"
+author: "Hussain AL-Musawi & Ammar Alaa"
+date: "9/27/2020"
+output: 
+  html_document: 
+    code_folding: hide
+    highlight: tango
+    theme: journal
+    toc: yes
+---
+# Introduction
+
+In this kernel we will be  examining prices rates in King county,USA and how the prices vary by (location,living space,number of bedrooms,etc...),we will explore our data and try to find patterns ,This kernel will include a map that contain the distribution of the houses and their prices,and we will create a model that can predict the price of the houses.  
+
+
+
+**libraries**
+```{r message=FALSE, warning=FALSE}
+library(caTools)
+library(plotly)
+library(randomcoloR)
+library(tidyverse)
+library(psych)
+library(ggpubr)
+library(wesanderson)
+library(backports)
+library(lubridate)
+library(ggplot2)
+library(moonBook)
+library(mycor)
+library(ggcorrplot)
+library(scales)
+library(leaflet)
+library(wesanderson)
+library(randomForest)
+library(caret)
+library(infer)
+```
+
+
+
+```{r}
+houses<- read.csv("E:/test files/kc_house_data.csv", stringsAsFactors=TRUE)
+```
+
+
+## Exploring The Data
+
+
+  **Columns of Data**
+   
+ 1-id = Identify number 
+
+ 2-price = House price in dollar 
+
+ 3-bedrooms = Count of bedrooms 
+
+ 4-bathrooms = Count of bathrooms
+
+ 5-sqft_living = Living space
+
+ 6-sqft_lot = Square footage of house on land
+
+ 7-floors= Count of floors
+
+ 8-waterfront = House on the seaside or not (1/0)
+
+ 9-view = View point of house (0 - 4)
+ 
+ 10-condition = Conditions point of house (0 - 5)
+ 
+ 11-grade = Point of house (1 - 13)
+ 
+ 12-sqft_above = Square footage of the above ground
+
+ 13-sqft_basement = Square footage of the below ground
+
+ 14-yr_built = The year of Hous was build
+
+ 15-yr_renovated = The year of House was renovate
+
+ 16-zipcode = Zipcode of house
+
+ 17-lat = Lattitude
+
+ 18-long = Longitude
+
+ 19-sqft_living15 = Living space in houses,they were sold in 2015
+
+ 20-sal_year = The year house was sold
+
+ 21-sqft_lot15 = Square footage of house on land,the houses sold in 2015
+
+
+
+```{r}
+head(houses)
+```
+
+
+```{r}
+str(houses)
+```
+
+
+
+```{r}
+describe(houses)
+```
+
+   
+we can remove the month and day because i think its not important in our job  
+
+```{r}
+
+houses$date<-gsub("T000000"," ",houses$date)
+houses$date<-year(ymd(houses$date))
+```
+
+remove unwanted columns 
+
+```{r}
+houses<- select(houses,-id,-zipcode)
+
+```
+
+## Data Visualization and Analysis
+
+### Correlations Between Variables
+
+```{r message=FALSE, warning=FALSE}
+corr <- cor(select(houses,-long,-lat,-date))
+corr.plot <- ggcorrplot(corr, type = "lower", outline.col = "white" ,lab = TRUE,lab_size = 1)+
+  labs(title = "Data Correlation")
+ggplotly(corr.plot,label=style)
+```
+
+### Price Distribution
+```{r message=FALSE, warning=FALSE}
+gghistogram(houses$price,fill ="skyblue",bins =60,title =" Price Distrbuation")+
+scale_x_continuous(labels = label_number_si())
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+gghistogram(houses$price,fill="skyblue",bins =150,title =" Price Distrbuation < 1M",interactive=TRUE)+
+  scale_x_continuous(labels = scales::comma)+
+  scale_x_continuous(labels = scales::dollar)+
+  coord_cartesian(x=c(0,1000000))
+
+```
+
+### Variables Affecting The Price
+
+**Bedrooms**
+It is obvious that more bedrooms means higher price but this plot show that 11 bedrooms price less than 7 ,that because the effect of other variables.
+```{r message=FALSE, warning=FALSE}
+houses$bedrooms<-factor(houses$bedrooms)
+houses %>% filter(!(bedrooms=="30"|bedrooms=="33")) %>%
+  group_by(bedrooms) %>% summarise(mean=mean(price)) %>% 
+  ggbarplot(x="bedrooms",y="mean",fill = "bedrooms",palette = "Set3",size = 1.5)+
+  scale_y_continuous(labels = scales::dollar,n.breaks = 15)+
+  theme(legend.position = "none")+
+  labs(title = " Price Average By Bedrooms")
+
+
+```
+
+**Grades**
+
+```{r message=FALSE, warning=FALSE}
+houses$grade<-factor(houses$grade)
+houses %>% group_by(grade) %>% summarise(mean=mean(price)) %>% 
+ggbarplot(houses,x="grade",y="mean",fill = "grade",palette = randomColor(count=12,luminosity = "light"),size = 1.5)+
+  scale_y_continuous(labels = scales::dollar,n.breaks = 15)+
+  theme(legend.position = "none")+
+  labs(title = "Price Average by grade") 
+
+```
+
+**View**
+
+```{r message=FALSE, warning=FALSE}
+houses$view<-factor(houses$view)
+houses %>% group_by(view) %>% summarise(mean=mean(price)) %>% 
+  ggbarplot(x="view",y="mean",fill="view",palette = wes_palette("Darjeeling1"),size = 1.5)+
+  theme(legend.position = "none")+scale_y_continuous(labels = dollar,n.breaks = 15)+
+  labs(title = " Price Average By View")
+
+```
+
+**Floors**
+
+```{r message=FALSE, warning=FALSE}
+houses$floors<-round(houses$floors) %>% factor()
+houses %>%  group_by(floors) %>% summarise(mean=mean(price)) %>% 
+ggbarplot(houses,x="floors",y="mean",fill = "floors",palette = wes_palette("BottleRocket2"),size = 1.5)+
+  scale_y_continuous(n.breaks = 10,labels = label_dollar())+
+  labs(title = "Price Average By Floors Number")+
+  theme(legend.position = "none")
+
+```
+
+**living Space**
+
+```{r message=FALSE, warning=FALSE}
+ggscatter(houses,"sqft_living","price",color = "purple",size=0.5,alpha=0.5)+ylim(70000,2000000)+geom_smooth(method="lm",size=1.2,col="darkred",size=2)+xlim(0,5000)+labs(x = 'Tooal living space', y = 'Price (USD)',title = "Price By living Space")+scale_y_continuous(labels = label_dollar(),n.breaks = 10)+coord_cartesian(y=c(0,2000000))
+
+```
+
+
+**Year Solid**
+
+```{r message=FALSE, warning=FALSE}
+houses$date<-factor(houses$date)
+houses %>% group_by(date) %>% summarise(mean=mean(price))
+
+```
+
+**Year Build**
+
+```{r message=FALSE, warning=FALSE}
+houses$yearb<-cut(houses$yr_built,c(1900,1950,2000,2020))
+houses$yearb<-factor(houses$yearb,levels = c("(1.9e+03,1.95e+03]","(1.95e+03,2e+03]","(2e+03,2.02e+03]"),labels = c("1900-1950","1950-2000","2000-2020"))
+houses %>% group_by(yearb) %>% summarise(mean=mean(price,na.rm = TRUE)) %>%filter(!is.na(yearb)) %>% 
+ggbarplot("yearb","mean",fill="yearb",col="black",size = 2)+labs(title = "Price Average By Year Built",x="Year Built",y="Praice Average")+scale_y_continuous(labels = dollar,n.breaks = 10)+theme(legend.position = "none")
+```
+
+# Map
+
+```{r message=FALSE, warning=FALSE}
+houses$PriceBin<-cut(houses$price, c(0,250000,500000,750000,1000000,2000000,99900000))
+houses$PriceBin<-factor(houses$PriceBin,levels = c("(0,2.5e+05]","(2.5e+05,5e+05]","(5e+05,7.5e+05]","(7.5e+05,1e+06]","(1e+06,2e+06]","(2e+06,9.99e+07]"),labels = c("0 - 250K $","250K $ - 500K $","500K $ - 750K $","750K $ - 1M $","1M $ - 2M $","2M $ - 10M $"))
+center_lon = median(houses$long,na.rm = TRUE)
+center_lat = median(houses$lat,na.rm = TRUE)
+
+
+factpal <- colorFactor(c("red","blue","yellow","orange","#0B5345","black"), 
+                       houses$PriceBin)
+
+labels <- sprintf(
+  "<strong>%s</strong><br/>%s",
+  'Price: ',dollar(houses$price),'Bedrooms', houses$bedrooms
+) %>% lapply(htmltools::HTML)
+
+leaflet(houses) %>% addProviderTiles("Esri.NatGeoWorldMap")  %>% 
+  addCircles(lng = ~long, lat = ~lat 
+             ,color = ~factpal(PriceBin),label =labels,popup = paste0('Bedrooms: ',houses$bedrooms,',   Living Space: ',houses$sqft_living))  %>%
+  setView(lng=center_lon, lat=center_lat,zoom = 12) %>% 
+  
+  addLegend("bottomright", pal = factpal, values = ~PriceBin,
+            title = "House Price Distribution",
+            opacity = 1)
+
+```
+
+# The Model (Random Forest)
+
+First we need to remove some variables 
+
+```{r}
+houses1<- read.csv("E:/test files/kc_house_data.csv", stringsAsFactors=TRUE)
+houses1 = dplyr::select(houses1,-id,-date,-yr_renovated,-zipcode)
+```
+
+Now split our data into train and test data
+
+```{r}
+sample=sample.split(houses1$price,SplitRatio=0.75)
+train=subset(houses1,sample==T)
+test=subset(houses1,sample==F)
+```
+
+Create the model
+
+```{r}
+model=randomForest(price~.,train)
+model
+```
+
+We see that the model can explain 87% of our data which is good
+
+Test the model
+```{r}
+predict=predict(model,test[,-1])
+postResample(test$price,predict)
+```
+
+The accuracy of the model is 87% 
+
+# Improving The Model
+   
+We did some changes in our data so that we improve the model,for example we converted the year built from numeric to factors and convert basement space to (true,false) factor,and some rounding . and resampling. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+houses1$yearb<-cut(houses$yr_built,c(1900,1950,2000,2020))
+houses1$yearb<-factor(houses1$yearb,levels = c("(1.9e+03,1.95e+03]","(1.95e+03,2e+03]","(2e+03,2.02e+03]"),labels = c("1900-1950","1950-2000","2000-2020"))
+houses1=houses1 %>% dplyr::select(-yr_built) 
+houses1$bathrooms=round(houses1$bathrooms)
+houses1$floors<-round(houses1$floors)
+houses1<-houses1 %>% filter(!is.na(yearb))
+houses1$basement<-ifelse(houses1$sqft_basement>0,1,0)
+houses1<-houses1 %>% dplyr::select(-sqft_basement)
+sample=sample.split(houses1$price,SplitRatio=0.75)
+train=subset(houses1,sample==T)
+test=subset(houses1,sample==F)
+train=rep_sample_n(train,size =16884,reps = 3,replace = TRUE)
+model=randomForest(price~.,train[,-1])
+model
+```
+
+**The model improved by more than 10% ,very good improvement**
